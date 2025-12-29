@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Unit 7 – Function Grapher (z = f(x,y))</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #b0b0b0; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+
+<!-- Importmap = reliable modern way to load Three.js + addons -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+/***********************************************************************
+ * Unit 7 Programming Assignment - Function Grapher
+ *
+ * Requirements met:
+ *  - Graphs z = f(x,y) using x,y in [-1,1] step 0.1
+ *  - Builds a mesh from generated vertices
+ *  - Mouse rotate + zoom via OrbitControls
+ *  - Includes AxisHelper and a plane/grid reference at origin
+ *  - Uses a required example: Hyperbolic Paraboloid (z = x^2 - y^2)
+ *  - Well documented
+ ***********************************************************************/
+
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+/* =========================
+   1) Scene / Camera / Renderer
+========================= */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xb0b0b0); // similar grey tone to your example
+
+const camera = new THREE.PerspectiveCamera(
+  60,
+  window.innerWidth / window.innerHeight,
+  0.01,
+  200
+);
+camera.position.set(2.7, 2.1, 2.7);
+camera.lookAt(0, 0, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+document.body.appendChild(renderer.domElement);
+
+/* =========================
+   2) Mouse Controls (Rotate + Zoom)
+========================= */
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.target.set(0, 0, 0);
+
+/* =========================
+   3) Reference Objects: Axes + Grid/Plane
+========================= */
+// Axes helper at origin (required)
+scene.add(new THREE.AxesHelper(1.5));
+
+// Grid reference plane at origin (looks like your example)
+const grid = new THREE.GridHelper(6, 20, 0x666666, 0x888888);
+grid.position.y = 0;
+scene.add(grid);
+
+/* =========================
+   4) Lighting (for nicer shading)
+========================= */
+scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+
+const dir = new THREE.DirectionalLight(0xffffff, 0.9);
+dir.position.set(5, 7, 4);
+scene.add(dir);
+
+/* =========================
+   5) Function Definition: z = f(x, y)
+   Required example: Hyperbolic Paraboloid
+========================= */
+function f(x, y) {
+  return (x * x) - (y * y); // saddle surface
+}
+
+/* =========================
+   6) Generate Vertices (x,y in [-1,1] step 0.1)
+   Build a triangle mesh (two triangles per grid cell)
+========================= */
+const min = -1;
+const max =  1;
+const step = 0.1;
+
+// Create sample arrays so indexing is stable
+const xs = [];
+for (let x = min; x <= max + 1e-9; x += step) xs.push(Number(x.toFixed(10)));
+
+const ys = [];
+for (let y = min; y <= max + 1e-9; y += step) ys.push(Number(y.toFixed(10)));
+
+// Precompute points in a grid: points[i][j] = Vector3(x, z, y)
+const points = [];
+let zMin = Infinity, zMax = -Infinity;
+
+for (let i = 0; i < xs.length; i++) {
+  points[i] = [];
+  for (let j = 0; j < ys.length; j++) {
+    const x = xs[i];
+    const y = ys[j];
+    const z = f(x, y);
+
+    zMin = Math.min(zMin, z);
+    zMax = Math.max(zMax, z);
+
+    // Use X = x, Y = z (height), Z = y
+    points[i][j] = new THREE.Vector3(x, z, y);
+  }
+}
+
+// Helper to color vertices similar to your rainbow example
+const color = new THREE.Color();
+const positions = [];
+const colors = [];
+
+// Convert each grid quad into 2 triangles
+for (let i = 0; i < xs.length - 1; i++) {
+  for (let j = 0; j < ys.length - 1; j++) {
+    const p00 = points[i][j];
+    const p10 = points[i + 1][j];
+    const p01 = points[i][j + 1];
+    const p11 = points[i + 1][j + 1];
+
+    // Triangle 1: p00, p10, p01
+    pushVertex(p00);
+    pushVertex(p10);
+    pushVertex(p01);
+
+    // Triangle 2: p10, p11, p01
+    pushVertex(p10);
+    pushVertex(p11);
+    pushVertex(p01);
+  }
+}
+
+function pushVertex(p) {
+  positions.push(p.x, p.y, p.z);
+
+  // Map height (p.y) to color hue for rainbow effect
+  // Normalize to [0,1]
+  const t = (p.y - zMin) / (zMax - zMin || 1);
+  // Hue: 0.0 red → 0.75 blue/purple
+  color.setHSL(0.75 * (1 - t), 1.0, 0.5);
+  colors.push(color.r, color.g, color.b);
+}
+
+// Build BufferGeometry
+const geometry = new THREE.BufferGeometry();
+geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+geometry.computeVertexNormals();
+
+// Material that uses per-vertex colors
+const material = new THREE.MeshStandardMaterial({
+  vertexColors: true,
+  side: THREE.DoubleSide,
+  roughness: 0.55,
+  metalness: 0.05
+});
+
+const surface = new THREE.Mesh(geometry, material);
+scene.add(surface);
+
+// Optional: subtle wire overlay (helps it look like a “mesh”)
+const wire = new THREE.LineSegments(
+  new THREE.WireframeGeometry(geometry),
+  new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.18 })
+);
+scene.add(wire);
+
+/* =========================
+   7) Resize Handling
+========================= */
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* =========================
+   8) Render Loop
+========================= */
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+</script>
+</body>
+</html>
